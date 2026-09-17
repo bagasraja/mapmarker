@@ -3,59 +3,159 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Peta Interaktif dengan Marker</title>
+    <title>Peta dengan Login & Hapus Marker</title>
     
-    <!-- Memanggil CSS dari Leaflet -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     
     <style>
-        /* Mengatur agar peta memenuhi layar */
-        body {
-            margin: 0;
-            padding: 0;
+        body { margin: 0; padding: 0; font-family: sans-serif; }
+        #map { width: 100vw; height: 100vh; }
+        
+        /* Desain Panel Login yang mengambang di atas peta */
+        #auth-panel {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            z-index: 1000; /* Supaya di atas peta Leaflet */
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
         }
-        #map {
-            width: 100vw;
-            height: 100vh;
-        }
+        
+        button { padding: 5px 10px; cursor: pointer; }
+        input { padding: 5px; margin-right: 5px; }
+        .hapus-btn { background: red; color: white; border: none; border-radius: 3px; margin-top: 5px; }
     </style>
 </head>
 <body>
 
-    <!-- Wadah untuk Peta -->
+    <!-- Panel Autentikasi -->
+    <div id="auth-panel">
+        <div id="login-section">
+            <input type="text" id="username" placeholder="Ketik nama kamu...">
+            <button onclick="login()">Login</button>
+        </div>
+        <div id="user-section" style="display: none;">
+            <span>Halo, <b id="user-display"></b>!</span>
+            <button onclick="logout()">Logout</button>
+        </div>
+    </div>
+
+    <!-- Wadah Peta -->
     <div id="map"></div>
 
-    <!-- Memanggil JavaScript dari Leaflet -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     
     <script>
-        // 1. Inisialisasi Peta
-        // Set koordinat awal [Latitude, Longitude] dan level zoom (13)
-        // Koordinat di bawah ini mengarah ke Surabaya
+        // --- 1. INISIALISASI PETA ---
         var map = L.map('map').setView([-7.250445, 112.768845], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
 
-        // 2. Menambahkan Layer Peta dari OpenStreetMap (Gratis & Tanpa API Key)
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        }).addTo(map);
+        // --- 2. VARIABEL GLOBAL ---
+        var currentUser = null; // Menyimpan status user yang sedang login
+        var markersData = [];   // Array untuk menyimpan data koordinat
+        var markersLayer = {};  // Objek untuk menyimpan elemen visual marker di peta
 
-        // 3. Menambahkan Marker Bawaan
-        L.marker([-7.250445, 112.768845]).addTo(map)
-            .bindPopup('<b>Halo!</b><br>Ini marker pertama.')
-            .openPopup();
+        // --- 3. SISTEM LOGIN & LOGOUT ---
+        function login() {
+            var inputName = document.getElementById('username').value.trim();
+            if (!inputName) { alert("Nama tidak boleh kosong!"); return; }
+            
+            currentUser = inputName;
+            
+            // Ubah tampilan UI
+            document.getElementById('login-section').style.display = 'none';
+            document.getElementById('user-section').style.display = 'block';
+            document.getElementById('user-display').innerText = currentUser;
+            
+            loadData(); // Muat data marker milik user ini
+        }
 
-        // 4. Fitur Klik Peta untuk Menambah Marker Baru
+        function logout() {
+            currentUser = null;
+            
+            // Bersihkan peta dari marker user sebelumnya
+            clearMap(); 
+            
+            // Ubah tampilan UI
+            document.getElementById('login-section').style.display = 'block';
+            document.getElementById('user-section').style.display = 'none';
+            document.getElementById('username').value = '';
+        }
+
+        // --- 4. SISTEM DATABASE (Simulasi via LocalStorage) ---
+        function saveData() {
+            if (!currentUser) return;
+            // Simpan array markersData ke penyimpanan browser dengan kunci spesifik nama user
+            localStorage.setItem('peta_marker_' + currentUser, JSON.stringify(markersData));
+        }
+
+        function loadData() {
+            clearMap(); // Bersihkan peta sebelum memuat data baru
+            
+            var savedData = localStorage.getItem('peta_marker_' + currentUser);
+            if (savedData) {
+                markersData = JSON.parse(savedData);
+                // Tampilkan kembali setiap marker yang tersimpan ke atas peta
+                markersData.forEach(function(data) {
+                    renderMarker(data.lat, data.lng, data.id);
+                });
+            } else {
+                markersData = []; // Jika user baru, siapkan array kosong
+            }
+        }
+
+        function clearMap() {
+            for (var id in markersLayer) { map.removeLayer(markersLayer[id]); }
+            markersLayer = {};
+            markersData = [];
+        }
+
+        // --- 5. FITUR TAMBAH & HAPUS MARKER ---
+        
+        // Menambah marker saat peta diklik
         map.on('click', function(e) {
-            // Mengambil titik koordinat yang diklik
+            if (!currentUser) { alert("Silakan login terlebih dahulu untuk menambah marker!"); return; }
+
             var lat = e.latlng.lat;
             var lng = e.latlng.lng;
+            var id = Date.now(); // Buat ID unik berdasarkan waktu saat ini
 
-            // Membuat marker baru di titik tersebut
-            L.marker([lat, lng]).addTo(map)
-                .bindPopup('Marker baru ditambahkan di:<br>Lat: ' + lat.toFixed(4) + '<br>Lng: ' + lng.toFixed(4))
-                .openPopup();
+            // Simpan ke array dan database
+            markersData.push({ id: id, lat: lat, lng: lng });
+            saveData();
+
+            // Tampilkan di peta
+            renderMarker(lat, lng, id);
         });
+
+        // Fungsi menggambar marker dan tombol hapusnya di peta
+        function renderMarker(lat, lng, id) {
+            var popupContent = `
+                <b>Marker ID:</b> ${id}<br>
+                <button class="hapus-btn" onclick="hapusMarker(${id})">Hapus Marker Ini</button>
+            `;
+            
+            var newMarker = L.marker([lat, lng]).bindPopup(popupContent);
+            newMarker.addTo(map);
+            
+            // Simpan elemen visualnya agar nanti bisa dihapus
+            markersLayer[id] = newMarker; 
+        }
+
+        // Fungsi yang dipanggil saat tombol "Hapus Marker Ini" diklik
+        window.hapusMarker = function(id) {
+            // Hapus dari tampilan peta
+            if (markersLayer[id]) {
+                map.removeLayer(markersLayer[id]);
+                delete markersLayer[id];
+            }
+            
+            // Hapus dari array dan update database
+            markersData = markersData.filter(function(marker) { return marker.id !== id; });
+            saveData();
+        };
     </script>
 </body>
 </html>
